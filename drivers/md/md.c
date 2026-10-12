@@ -143,6 +143,34 @@ static inline int speed_max(struct mddev *mddev)
 		mddev->sync_speed_max : sysctl_speed_limit_max;
 }
 
+static void md_update_pci_p2pdma(struct mddev *mddev)
+{
+	struct md_rdev *rdev;
+	bool supported = mddev->level == 0 || mddev->level == 1 ||
+			 mddev->level == 10;
+
+	if (mddev_is_dm(mddev))
+		return;
+
+	/* An empty array cannot accept P2PDMA. */
+	if (list_empty(&mddev->disks)) {
+		blk_queue_flag_clear(QUEUE_FLAG_PCI_P2PDMA, mddev->queue);
+		return;
+	}
+
+	rdev_for_each(rdev, mddev) {
+		if (!blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev))) {
+			supported = false;
+			break;
+		}
+	}
+
+	if (supported)
+		blk_queue_flag_set(QUEUE_FLAG_PCI_P2PDMA, mddev->queue);
+	else
+		blk_queue_flag_clear(QUEUE_FLAG_PCI_P2PDMA, mddev->queue);
+}
+
 static void rdev_uninit_serial(struct md_rdev *rdev)
 {
 	if (!test_and_clear_bit(CollisionCheck, &rdev->flags))
@@ -2604,6 +2632,10 @@ static int bind_rdev_to_array(struct md_rdev *rdev, struct mddev *mddev)
 			mdname(mddev), mddev->max_disks);
 		return -EBUSY;
 	}
+	/* A newly bound spare may later become an I/O destination. */
+	if (mddev->pers && !mddev_is_dm(mddev) &&
+	    !blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev)))
+		blk_queue_flag_clear(QUEUE_FLAG_PCI_P2PDMA, mddev->queue);
 	snprintf(b, sizeof(b), "%pg", rdev->bdev);
 	strreplace(b, '/', '!');
 
@@ -2683,6 +2715,15 @@ static void md_kick_rdev_from_array(struct md_rdev *rdev)
 	 * reconfig_mutex and it's delayed to mddev_unlock().
 	 */
 	list_add(&rdev->same_set, &mddev->deleting);
+
+	/*
+	 * The member left the array.  Reevaluate P2PDMA support with the
+	 * remaining members, so removing the last unsupported member can
+	 * re-enable it.  Teardown paths run after mddev->pers is cleared
+	 * and are excluded.
+	 */
+	if (mddev->pers && !mddev_is_dm(mddev))
+		md_update_pci_p2pdma(mddev);
 }
 
 static void export_array(struct mddev *mddev)
@@ -4240,6 +4281,7 @@ level_store(struct mddev *mddev, const char *buf, size_t len)
 	}
 	blk_set_stacking_limits(&mddev->queue->limits);
 	pers->run(mddev);
+	md_update_pci_p2pdma(mddev);
 	set_bit(MD_SB_CHANGE_DEVS, &mddev->sb_flags);
 	if (!mddev->thread)
 		md_update_sb(mddev, 1);
@@ -6267,6 +6309,8 @@ int md_run(struct mddev *mddev)
 	}
 	if (err)
 		goto bitmap_abort;
+
+	md_update_pci_p2pdma(mddev);
 
 	if (mddev->bitmap_info.max_write_behind > 0) {
 		bool create_pool = false;
