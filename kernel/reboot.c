@@ -10,14 +10,25 @@
 #include <linux/atomic.h>
 #include <linux/ctype.h>
 #include <linux/export.h>
+#include <linux/init.h>
 #include <linux/kexec.h>
 #include <linux/kmod.h>
 #include <linux/kmsg_dump.h>
+#include <linux/moduleparam.h>
 #include <linux/reboot.h>
 #include <linux/suspend.h>
 #include <linux/syscalls.h>
 #include <linux/syscore_ops.h>
 #include <linux/uaccess.h>
+
+/* Temporary shutdown-hang diagnostics, independent of initcall tracing. */
+static bool shutdown_debug = true;
+core_param(shutdown_debug, shutdown_debug, bool, 0644);
+
+bool shutdown_debug_enabled(void)
+{
+	return READ_ONCE(shutdown_debug);
+}
 
 /*
  * this indicates whether you can reboot with ctrl-alt-del: the default is yes

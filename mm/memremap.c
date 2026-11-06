@@ -6,6 +6,7 @@
 #include <linux/memory_hotplug.h>
 #include <linux/memremap.h>
 #include <linux/pfn_t.h>
+#include <linux/reboot.h>
 #include <linux/swap.h>
 #include <linux/mmzone.h>
 #include <linux/swapops.h>
@@ -137,16 +138,31 @@ void memunmap_pages(struct dev_pagemap *pgmap)
 {
 	int i;
 
+	if (shutdown_debug_enabled() && pgmap->type == MEMORY_DEVICE_PCI_P2PDMA)
+		pr_info("shutdown-debug: P2PDMA %p range %llx-%llx shift %lu kill begin\n",
+			pgmap, pgmap->range.start, pgmap->range.end,
+			pgmap->vmemmap_shift);
 	percpu_ref_kill(&pgmap->ref);
 	if (pgmap->type != MEMORY_DEVICE_PRIVATE &&
 	    pgmap->type != MEMORY_DEVICE_COHERENT)
 		for (i = 0; i < pgmap->nr_range; i++)
 			percpu_ref_put_many(&pgmap->ref, pfn_len(pgmap, i));
 
+	if (shutdown_debug_enabled() && pgmap->type == MEMORY_DEVICE_PCI_P2PDMA)
+		pr_info("shutdown-debug: P2PDMA %p reference drain begin\n", pgmap);
 	wait_for_completion(&pgmap->done);
+	if (shutdown_debug_enabled() && pgmap->type == MEMORY_DEVICE_PCI_P2PDMA)
+		pr_info("shutdown-debug: P2PDMA %p reference drain end\n", pgmap);
 
-	for (i = 0; i < pgmap->nr_range; i++)
+	for (i = 0; i < pgmap->nr_range; i++) {
+		if (shutdown_debug_enabled() && pgmap->type == MEMORY_DEVICE_PCI_P2PDMA)
+			pr_info("shutdown-debug: P2PDMA %p unmap range %d begin\n",
+				pgmap, i);
 		pageunmap_range(pgmap, i);
+		if (shutdown_debug_enabled() && pgmap->type == MEMORY_DEVICE_PCI_P2PDMA)
+			pr_info("shutdown-debug: P2PDMA %p unmap range %d end\n",
+				pgmap, i);
+	}
 	percpu_ref_exit(&pgmap->ref);
 
 	WARN_ONCE(pgmap->altmap.alloc, "failed to free all reserved pages\n");

@@ -25,6 +25,7 @@
 #include <linux/cleanup.h>
 #include <linux/mutex.h>
 #include <linux/pm_runtime.h>
+#include <linux/reboot.h>
 #include <linux/netdevice.h>
 #include <linux/sched/signal.h>
 #include <linux/sched/mm.h>
@@ -4847,7 +4848,13 @@ void device_shutdown(void)
 {
 	struct device *dev, *parent;
 
+	if (shutdown_debug_enabled()) {
+		console_verbose();
+		pr_info("shutdown-debug: wait_for_device_probe begin\n");
+	}
 	wait_for_device_probe();
+	if (shutdown_debug_enabled())
+		pr_info("shutdown-debug: wait_for_device_probe end\n");
 	device_block_probing();
 
 	cpufreq_suspend();
@@ -4877,35 +4884,66 @@ void device_shutdown(void)
 		spin_unlock(&devices_kset->list_lock);
 
 		/* hold lock to avoid race with probe/release */
-		if (parent)
+		if (parent) {
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: parent lock %s begin\n",
+					 dev_name(parent));
 			device_lock(parent);
+		}
+		if (shutdown_debug_enabled())
+			dev_info(dev, "shutdown-debug: device lock begin\n");
 		device_lock(dev);
+		if (shutdown_debug_enabled())
+			dev_info(dev, "shutdown-debug: locks acquired\n");
 
 		/* Don't allow any more runtime suspends */
 		pm_runtime_get_noresume(dev);
+		if (shutdown_debug_enabled())
+			dev_info(dev, "shutdown-debug: runtime barrier begin\n");
 		pm_runtime_barrier(dev);
+		if (shutdown_debug_enabled())
+			dev_info(dev, "shutdown-debug: runtime barrier end\n");
 
 		if (dev->class && dev->class->shutdown_pre) {
 			if (initcall_debug)
 				dev_info(dev, "shutdown_pre\n");
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback %ps begin\n",
+					 dev->class->shutdown_pre);
 			dev->class->shutdown_pre(dev);
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback end\n");
 		}
 		if (dev->bus && dev->bus->shutdown) {
 			if (initcall_debug)
 				dev_info(dev, "shutdown\n");
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback %ps begin\n",
+					 dev->bus->shutdown);
 			dev->bus->shutdown(dev);
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback end\n");
 		} else if (dev->driver && dev->driver->shutdown) {
 			if (initcall_debug)
 				dev_info(dev, "shutdown\n");
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback %ps begin\n",
+					 dev->driver->shutdown);
 			dev->driver->shutdown(dev);
+			if (shutdown_debug_enabled())
+				dev_info(dev, "shutdown-debug: callback end\n");
 		}
 
 		device_unlock(dev);
 		if (parent)
 			device_unlock(parent);
 
+		if (shutdown_debug_enabled())
+			dev_info(dev, "shutdown-debug: put_device begin\n");
 		put_device(dev);
 		put_device(parent);
+		if (shutdown_debug_enabled())
+			pr_info("shutdown-debug: put_device end\n");
 
 		spin_lock(&devices_kset->list_lock);
 	}

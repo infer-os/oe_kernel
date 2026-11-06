@@ -17,6 +17,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/suspend.h>
 #include <linux/kexec.h>
+#include <linux/reboot.h>
 #include <linux/of_device.h>
 #include <linux/acpi.h>
 #include <linux/dma-map-ops.h>
@@ -539,10 +540,20 @@ static void pci_device_shutdown(struct device *dev)
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct pci_driver *drv = pci_dev->driver;
 
+	if (shutdown_debug_enabled())
+		pci_info(pci_dev, "shutdown-debug: runtime resume begin\n");
 	pm_runtime_resume(dev);
+	if (shutdown_debug_enabled())
+		pci_info(pci_dev, "shutdown-debug: runtime resume end\n");
 
-	if (drv && drv->shutdown)
+	if (drv && drv->shutdown) {
+		if (shutdown_debug_enabled())
+			pci_info(pci_dev, "shutdown-debug: driver %s callback %ps begin\n",
+				 drv->name, drv->shutdown);
 		drv->shutdown(pci_dev);
+		if (shutdown_debug_enabled())
+			pci_info(pci_dev, "shutdown-debug: driver callback end\n");
+	}
 
 	/*
 	 * If this is a kexec reboot, turn off Bus Master bit on the
