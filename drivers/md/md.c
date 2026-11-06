@@ -159,8 +159,7 @@ static void md_update_pci_p2pdma(struct mddev *mddev)
 	}
 
 	rdev_for_each(rdev, mddev) {
-		if (!blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev)) ||
-		    bdev_get_integrity(rdev->bdev)) {
+		if (!blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev))) {
 			supported = false;
 			break;
 		}
@@ -2635,8 +2634,7 @@ static int bind_rdev_to_array(struct md_rdev *rdev, struct mddev *mddev)
 	}
 	/* A newly bound spare may later become an I/O destination. */
 	if (mddev->pers && !mddev_is_dm(mddev) &&
-	    (!blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev)) ||
-	     bdev_get_integrity(rdev->bdev)))
+	    !blk_queue_pci_p2pdma(bdev_get_queue(rdev->bdev)))
 		blk_queue_flag_clear(QUEUE_FLAG_PCI_P2PDMA, mddev->queue);
 	snprintf(b, sizeof(b), "%pg", rdev->bdev);
 	strreplace(b, '/', '!');
